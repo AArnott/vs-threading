@@ -105,7 +105,7 @@
                 }
 
                 // Ensure that the method is using the async keyword.
-                var updatedMethod = originalMethodDeclaration.MakeMethodAsync(semanticModel);
+                var updatedMethod = originalMethodDeclaration.MakeMethodAsync(semanticModel, cancellationToken);
 
                 if (updatedMethod != originalMethodDeclaration)
                 {

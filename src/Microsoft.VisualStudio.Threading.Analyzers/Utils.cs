@@ -13,6 +13,8 @@ namespace Microsoft.VisualStudio.Threading.Analyzers
     using System.Threading.Tasks;
     using CodeAnalysis.CSharp;
     using CodeAnalysis.CSharp.Syntax;
+    using CodeAnalysis.FindSymbols;
+    using CodeAnalysis.Simplification;
     using Microsoft;
     using Microsoft.CodeAnalysis;
 
@@ -185,12 +187,18 @@ namespace Microsoft.VisualStudio.Threading.Analyzers
         /// </summary>
         /// <param name="method">The method to convert.</param>
         /// <param name="semanticModel">The semantic model for the document.</param>
+        /// <param name="cancellationToken">The cancellation token.</param>
         /// <returns>The converted method, or the original if it was already async.</returns>
-        internal static MethodDeclarationSyntax MakeMethodAsync(this MethodDeclarationSyntax method, SemanticModel semanticModel)
+        internal static MethodDeclarationSyntax MakeMethodAsync(this MethodDeclarationSyntax method, SemanticModel semanticModel, CancellationToken cancellationToken)
         {
             if (method == null)
             {
                 throw new ArgumentNullException(nameof(method));
+            }
+
+            if (semanticModel == null)
+            {
+                throw new ArgumentNullException(nameof(semanticModel));
             }
 
             if (method.Modifiers.Any(SyntaxKind.AsyncKeyword))
@@ -221,6 +229,33 @@ namespace Microsoft.VisualStudio.Threading.Analyzers
                         .WithReturnKeyword(n.ReturnKeyword.WithTrailingTrivia(SyntaxFactory.TriviaList())); // remove the trailing space after the keyword
                 })
                 .AddModifiers(SyntaxFactory.Token(SyntaxKind.AsyncKeyword));
+
+            var returnTypeSymbol = (IMethodSymbol)semanticModel.GetSymbolInfo(method, cancellationToken).Symbol;
+            if (returnTypeSymbol?.ReturnType?.Name != nameof(Task) || returnTypeSymbol.ReturnType.BelongsToNamespace(Namespaces.SystemThreadingTasks))
+            {
+                // Change the return type of the method to be Task or Task<T>
+                SimpleNameSyntax newReturnType = SyntaxFactory.IdentifierName(nameof(Task));
+                if (!returnTypeSymbol.ReturnsVoid)
+                {
+                    newReturnType = SyntaxFactory.GenericName(newReturnType.Identifier.Text)
+                        .AddTypeArgumentListArguments(method.ReturnType);
+                }
+
+                NameSyntax newQualifiedReturnType = Namespaces.MakeTypeSyntax(Namespaces.SystemThreadingTasks, newReturnType);
+                fixedUpAsyncMethod = fixedUpAsyncMethod
+                    .WithReturnType(newQualifiedReturnType.WithAdditionalAnnotations(Simplifier.Annotation));
+
+                // TODO: Update callers of this method to await the result or use JTF.Run.
+
+                // Add the Async suffix if it doesn't already exist.
+                // We're nested in a parent "if" so that we only rename the method if it wasn't Task-returning already.
+                if (!fixedUpAsyncMethod.Identifier.Text.EndsWith(AsyncSuffixAnalyzer.MandatoryAsyncSuffix))
+                {
+                    // TODO: apply rename refactoring to update all references to this method.
+                    fixedUpAsyncMethod = fixedUpAsyncMethod.WithIdentifier(
+                        SyntaxFactory.Identifier(fixedUpAsyncMethod.Identifier.Text + AsyncSuffixAnalyzer.MandatoryAsyncSuffix));
+                }
+            }
 
             return fixedUpAsyncMethod;
         }
