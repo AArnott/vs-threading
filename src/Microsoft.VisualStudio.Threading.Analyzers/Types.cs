@@ -121,5 +121,69 @@ namespace Microsoft.VisualStudio.Threading.Analyzers
 
             internal const string InvokeAsync = "InvokeAsync";
         }
+
+        internal static class MEFv1
+        {
+            private static readonly IReadOnlyList<string> RootNamespace = Namespaces.SystemComponentModelComposition;
+
+            internal static class ExportAttribute
+            {
+                internal const string TypeName = "ExportAttribute";
+
+                internal static readonly IReadOnlyList<string> Namespace = RootNamespace;
+
+                internal static readonly string FullTypeName = string.Join(".", Namespace) + "." + TypeName;
+            }
+
+            internal static class ImportingConstructorAttribute
+            {
+                internal const string TypeName = "ImportingConstructorAttribute";
+
+                internal static readonly IReadOnlyList<string> Namespace = RootNamespace;
+
+                internal static readonly string FullTypeName = string.Join(".", Namespace) + "." + TypeName;
+            }
+
+            internal static class IPartImportsSatisfiedNotification
+            {
+                internal const string TypeName = "IPartImportsSatisfiedNotification";
+
+                internal static readonly IReadOnlyList<string> Namespace = RootNamespace;
+
+                internal static readonly string FullTypeName = string.Join(".", Namespace) + "." + TypeName;
+            }
+        }
+
+        internal static class MEFv2
+        {
+            private static readonly IReadOnlyList<string> RootNamespace = Namespaces.SystemComposition;
+
+            internal static class ExportAttribute
+            {
+                internal const string TypeName = "ExportAttribute";
+
+                internal static readonly IReadOnlyList<string> Namespace = RootNamespace;
+
+                internal static readonly string FullTypeName = string.Join(".", Namespace) + "." + TypeName;
+            }
+
+            internal static class ImportingConstructorAttribute
+            {
+                internal const string TypeName = "ImportingConstructorAttribute";
+
+                internal static readonly IReadOnlyList<string> Namespace = RootNamespace;
+
+                internal static readonly string FullTypeName = string.Join(".", Namespace) + "." + TypeName;
+            }
+
+            internal static class OnImportsSatisfiedAttribute
+            {
+                internal const string TypeName = "OnImportsSatisfiedAttribute";
+
+                internal static readonly IReadOnlyList<string> Namespace = RootNamespace;
+
+                internal static readonly string FullTypeName = string.Join(".", Namespace) + "." + TypeName;
+            }
+        }
     }
 }

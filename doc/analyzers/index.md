@@ -11,6 +11,7 @@ ID | Title | Severity | Supports
 [VSTHRD010](VSTHRD010.md) | Invoke single-threaded types on Main thread | Critical | [1st rule](../threading_rules.md#Rule1)
 [VSTHRD011](VSTHRD011.md) | Avoid using `Lazy<T>` where `T` is `Task<T2>` | Critical | [3rd rule](../threading_rules.md#Rule3)
 [VSTHRD012](VSTHRD012.md) | Provide JoinableTaskFactory where allowed | Critical | [All rules](../threading_rules.md)
+[VSTHRD013](VSTHRD013.md) | Free-threaded MEF activation | Critical | [1st rule](../threading_rules.md#Rule1)
 [VSTHRD100](VSTHRD100.md) | Avoid `async void` methods | Advisory
 [VSTHRD101](VSTHRD101.md) | Avoid unsupported async delegates | Advisory | [VSTHRD100](VSTHRD100.md)
 [VSTHRD102](VSTHRD102.md) | Implement internal logic asynchronously | Advisory | [2nd rule](../threading_rules.md#Rule2)

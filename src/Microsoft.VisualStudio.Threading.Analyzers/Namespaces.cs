@@ -35,6 +35,19 @@
             nameof(global::System.Runtime.CompilerServices),
         };
 
+        internal static readonly IReadOnlyList<string> SystemComponentModelComposition = new[]
+        {
+            nameof(System),
+            nameof(global::System.ComponentModel),
+            "Composition",
+        };
+
+        internal static readonly IReadOnlyList<string> SystemComposition = new[]
+        {
+            nameof(System),
+            "Composition",
+        };
+
         internal static readonly IReadOnlyList<string> SystemWindowsThreading = new[]
         {
             nameof(System),

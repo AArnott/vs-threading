@@ -192,6 +192,14 @@ Await JoinableTaskFactory.SwitchToMainThreadAsync() first.</source>
 Await JoinableTaskFactory.SwitchToMainThreadAsync() first.</target>
           <note from="MultilingualBuild" annotates="source" priority="2">{0} is a type name and {1} is the name of a method that throws if not called from the main thread.</note>
         </trans-unit>
+        <trans-unit id="VSTHRD013_MessageFormat" translate="yes" xml:space="preserve">
+          <source>MEF part activation should be free-threaded to avoid deadlocks. This expression may require the main thread and should be moved to another method that can be invoked after MEF activation has completed.</source>
+          <target state="new">MEF part activation should be free-threaded to avoid deadlocks. This expression may require the main thread and should be moved to another method that can be invoked after MEF activation has completed.</target>
+        </trans-unit>
+        <trans-unit id="VSTHRD013_Title" translate="yes" xml:space="preserve">
+          <source>Free-threaded MEF activation</source>
+          <target state="new">Free-threaded MEF activation</target>
+        </trans-unit>
       </group>
     </body>
   </file>

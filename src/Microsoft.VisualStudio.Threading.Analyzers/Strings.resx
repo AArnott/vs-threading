@@ -257,4 +257,10 @@ Use AsyncLazy&lt;T&gt; instead.</value>
 Await JoinableTaskFactory.SwitchToMainThreadAsync() first.</value>
     <comment>{0} is a type name and {1} is the name of a method that throws if not called from the main thread.</comment>
   </data>
+  <data name="VSTHRD013_MessageFormat" xml:space="preserve">
+    <value>MEF part activation should be free-threaded to avoid deadlocks. This expression may require the main thread and should be moved to another method that can be invoked after MEF activation has completed.</value>
+  </data>
+  <data name="VSTHRD013_Title" xml:space="preserve">
+    <value>Free-threaded MEF activation</value>
+  </data>
 </root>

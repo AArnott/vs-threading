@@ -210,6 +210,24 @@ namespace Microsoft.VisualStudio.Threading.Analyzers {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to MEF part activation should be free-threaded to avoid deadlocks. This expression may require the main thread and should be moved to another method that can be invoked after MEF activation has completed..
+        /// </summary>
+        internal static string VSTHRD013_MessageFormat {
+            get {
+                return ResourceManager.GetString("VSTHRD013_MessageFormat", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Free-threaded MEF activation.
+        /// </summary>
+        internal static string VSTHRD013_Title {
+            get {
+                return ResourceManager.GetString("VSTHRD013_Title", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Change return type to Task.
         /// </summary>
         internal static string VSTHRD100_CodeFix_Title {
