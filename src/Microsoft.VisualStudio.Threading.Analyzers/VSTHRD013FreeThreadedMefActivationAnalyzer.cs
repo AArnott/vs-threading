@@ -41,44 +41,39 @@ namespace Microsoft.VisualStudio.Threading.Analyzers
             context.EnableConcurrentExecution();
             context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.Analyze);
 
-            context.RegisterCompilationStartAction(ctxt =>
+            context.RegisterCompilationStartAction(compilationStartContext =>
             {
-                var exportV1Attribute = ctxt.Compilation.GetTypeByMetadataName(Types.MEFv1.ExportAttribute.FullTypeName);
-                var exportV2Attribute = ctxt.Compilation.GetTypeByMetadataName(Types.MEFv2.ExportAttribute.FullTypeName);
-                var importingConstructorV1 = ctxt.Compilation.GetTypeByMetadataName(Types.MEFv1.ImportingConstructorAttribute.FullTypeName);
-                var importingConstructorV2 = ctxt.Compilation.GetTypeByMetadataName(Types.MEFv2.ImportingConstructorAttribute.FullTypeName);
-                var onImportsSatisfiedAttribute = ctxt.Compilation.GetTypeByMetadataName(Types.MEFv2.OnImportsSatisfiedAttribute.FullTypeName);
-                var importsSatisfiedNotificationInterface = ctxt.Compilation.GetTypeByMetadataName(Types.MEFv1.IPartImportsSatisfiedNotification.FullTypeName);
+                var data = new CompilationData(compilationStartContext);
 
                 // Only analyze further if MEFv1 or MEFv2 is referenced.
-                if (exportV1Attribute != null || exportV2Attribute != null)
+                if (data.ExportV1Attribute != null || data.ExportV2Attribute != null)
                 {
-                    ctxt.RegisterSyntaxNodeAction(Utils.DebuggableWrapper(c => this.AnalyzeClass(c, exportV1Attribute, exportV2Attribute, importingConstructorV1, importingConstructorV2, onImportsSatisfiedAttribute, importsSatisfiedNotificationInterface)), SyntaxKind.ClassDeclaration);
+                    compilationStartContext.RegisterSyntaxNodeAction(Utils.DebuggableWrapper(c => this.AnalyzeClass(c, data)), SyntaxKind.ClassDeclaration);
                 }
             });
         }
 
-        private static INamedTypeSymbol FindExportAttribute(ISymbol symbol, INamedTypeSymbol exportV1Attribute, INamedTypeSymbol exportV2Attribute)
+        private static INamedTypeSymbol FindExportAttribute(ISymbol symbol, CompilationData compilationData)
         {
             foreach (var attribute in symbol?.GetAttributes() ?? ImmutableArray<AttributeData>.Empty)
             {
-                if (attribute.AttributeClass?.Equals(exportV1Attribute) ?? false)
+                if (attribute.AttributeClass?.Equals(compilationData.ExportV1Attribute) ?? false)
                 {
-                    return exportV1Attribute;
+                    return compilationData.ExportV1Attribute;
                 }
 
-                if (attribute.AttributeClass?.Equals(exportV2Attribute) ?? false)
+                if (attribute.AttributeClass?.Equals(compilationData.ExportV2Attribute) ?? false)
                 {
-                    return exportV2Attribute;
+                    return compilationData.ExportV2Attribute;
                 }
             }
 
             return null;
         }
 
-        private static INamedTypeSymbol FindExportAttributeOnTypeOrMembers(INamedTypeSymbol typeSymbol, INamedTypeSymbol exportV1Attribute, INamedTypeSymbol exportV2Attribute)
+        private static INamedTypeSymbol FindExportAttributeOnTypeOrMembers(INamedTypeSymbol typeSymbol, CompilationData compilationData)
         {
-            var result = FindExportAttribute(typeSymbol, exportV1Attribute, exportV2Attribute);
+            var result = FindExportAttribute(typeSymbol, compilationData);
             if (result != null)
             {
                 return result;
@@ -86,7 +81,7 @@ namespace Microsoft.VisualStudio.Threading.Analyzers
 
             foreach (ISymbol member in typeSymbol.GetMembers())
             {
-                result = FindExportAttribute(member, exportV1Attribute, exportV2Attribute);
+                result = FindExportAttribute(member, compilationData);
                 if (result != null)
                 {
                     return result;
@@ -133,7 +128,7 @@ namespace Microsoft.VisualStudio.Threading.Analyzers
             return null;
         }
 
-        private void AnalyzeClass(SyntaxNodeAnalysisContext context, INamedTypeSymbol exportV1Attribute, INamedTypeSymbol exportV2Attribute, INamedTypeSymbol importingConstructorV1, INamedTypeSymbol importingConstructorV2, INamedTypeSymbol onImportsSatisfiedAttribute, INamedTypeSymbol importsSatisfiedNotificationInterface)
+        private void AnalyzeClass(SyntaxNodeAnalysisContext context, CompilationData compilationData)
         {
             var classDeclarationSyntax = (ClassDeclarationSyntax)context.Node;
 
@@ -143,29 +138,67 @@ namespace Microsoft.VisualStudio.Threading.Analyzers
                 return;
             }
 
-            INamedTypeSymbol foundExportAttribute = FindExportAttributeOnTypeOrMembers(classSymbol, exportV1Attribute, exportV2Attribute);
+            INamedTypeSymbol foundExportAttribute = FindExportAttributeOnTypeOrMembers(classSymbol, compilationData);
             if (foundExportAttribute == null)
             {
                 return;
             }
 
-            bool isMEFv1 = foundExportAttribute == exportV1Attribute;
-            var importingConstructorAttributeSymbol = isMEFv1 ? importingConstructorV1 : importingConstructorV2;
+            bool isMEFv1 = foundExportAttribute == compilationData.ExportV1Attribute;
+            var importingConstructorAttributeSymbol = isMEFv1 ? compilationData.ImportingConstructorV1 : compilationData.ImportingConstructorV2;
             IMethodSymbol importingConstructor = FindImportingConstructor(classSymbol, importingConstructorAttributeSymbol);
-            if (importingConstructor != null)
-            {
-                // TODO:
-            }
+            this.ReportThreadAffinity(context, importingConstructor, compilationData);
 
             IMethodSymbol onImportsSatisfiedMethod = isMEFv1
-                ? FindOnImportsSatisfiedMethodV1(classSymbol, importsSatisfiedNotificationInterface)
-                : FindOnImportsSatisfiedMethodV2(classSymbol, onImportsSatisfiedAttribute);
-            if (onImportsSatisfiedMethod != null)
+                ? FindOnImportsSatisfiedMethodV1(classSymbol, compilationData.ImportsSatisfiedNotificationInterface)
+                : FindOnImportsSatisfiedMethodV2(classSymbol, compilationData.OnImportsSatisfiedAttribute);
+            this.ReportThreadAffinity(context, onImportsSatisfiedMethod, compilationData);
+        }
+
+        private void ReportThreadAffinity(SyntaxNodeAnalysisContext context, IMethodSymbol methodSymbol, CompilationData compilationData)
+        {
+            var methodSyntax = methodSymbol?.DeclaringSyntaxReferences.FirstOrDefault();
+            if (methodSyntax == null)
             {
-                // TODO
+                return;
             }
 
+            
+
             context.ReportDiagnostic(Diagnostic.Create(Descriptor, context.Node.GetLocation()));
+        }
+
+        private class CompilationData
+        {
+#pragma warning disable RS1012 // Start action has no registered actions.
+            internal CompilationData(CompilationStartAnalysisContext context)
+#pragma warning restore RS1012 // Start action has no registered actions.
+            {
+                this.ExportV1Attribute = context.Compilation.GetTypeByMetadataName(Types.MEFv1.ExportAttribute.FullTypeName);
+                this.ExportV2Attribute = context.Compilation.GetTypeByMetadataName(Types.MEFv2.ExportAttribute.FullTypeName);
+                this.ImportingConstructorV1 = context.Compilation.GetTypeByMetadataName(Types.MEFv1.ImportingConstructorAttribute.FullTypeName);
+                this.ImportingConstructorV2 = context.Compilation.GetTypeByMetadataName(Types.MEFv2.ImportingConstructorAttribute.FullTypeName);
+                this.OnImportsSatisfiedAttribute = context.Compilation.GetTypeByMetadataName(Types.MEFv2.OnImportsSatisfiedAttribute.FullTypeName);
+                this.ImportsSatisfiedNotificationInterface = context.Compilation.GetTypeByMetadataName(Types.MEFv1.IPartImportsSatisfiedNotification.FullTypeName);
+                this.MainThreadAssertingMethods = CommonInterest.ReadMethods(context, CommonInterest.FileNamePatternForMethodsThatAssertMainThread).ToImmutableArray();
+                this.TypesRequiringMainThread = CommonInterest.ReadTypes(context, CommonInterest.FileNamePatternForTypesRequiringMainThread).ToImmutableArray();
+            }
+
+            public INamedTypeSymbol ExportV1Attribute { get; }
+
+            public INamedTypeSymbol ExportV2Attribute { get; }
+
+            public INamedTypeSymbol ImportingConstructorV1 { get; }
+
+            public INamedTypeSymbol ImportingConstructorV2 { get; }
+
+            public INamedTypeSymbol OnImportsSatisfiedAttribute { get; }
+
+            public INamedTypeSymbol ImportsSatisfiedNotificationInterface { get; }
+
+            public ImmutableArray<CommonInterest.QualifiedMember> MainThreadAssertingMethods { get; }
+
+            public ImmutableArray<CommonInterest.QualifiedType> TypesRequiringMainThread { get; }
         }
     }
 }
