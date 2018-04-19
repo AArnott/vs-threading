@@ -761,5 +761,30 @@ namespace TestNS2 {
             };
             this.VerifyCSharpDiagnostic(test, expect);
         }
+
+        [Fact]
+        public void Fix242()
+        {
+            var test = @"
+using System;
+using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Shell.Interop;
+
+class Package
+{
+    internal static bool IsUIContextActive(Guid context)
+    {
+        ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+        var monSel = ServiceProvider.GlobalProvider.GetService(typeof(IVsMonitorSelection)) as IVsMonitorSelection;
+        uint contextCookie;
+        bool result = false;
+        return result;
+    }
+}
+";
+
+            this.VerifyCSharpDiagnostic(new[] { test }, hasEntrypoint: false, allowErrors: false);
+        }
     }
 }
