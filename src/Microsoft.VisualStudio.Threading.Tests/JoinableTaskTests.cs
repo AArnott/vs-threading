@@ -3090,7 +3090,7 @@
                     {
                         return TplExtensions.CompletedTask;
                     });
-                }, maxBytesAllocated: 819);
+                }, maxBytesAllocated: 245);
             }
         }
 
@@ -3107,7 +3107,7 @@
                     {
                         return completedTask;
                     });
-                }, maxBytesAllocated: 819);
+                }, maxBytesAllocated: 327);
             }
         }
 
