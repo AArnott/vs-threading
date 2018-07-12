@@ -21,6 +21,11 @@ namespace Microsoft.VisualStudio.Threading
     public abstract class ReentrantSemaphore : IDisposable
     {
         /// <summary>
+        /// A completed task that returns an <see cref="EmptyStruct"/>.
+        /// </summary>
+        private static readonly Task<EmptyStruct> CompletedTask = Task.FromResult(default(EmptyStruct));
+
+        /// <summary>
         /// The factory to wrap all pending and active semaphore requests with to mitigate deadlocks.
         /// </summary>
         private readonly JoinableTaskFactory joinableTaskFactory;
@@ -151,11 +156,12 @@ namespace Microsoft.VisualStudio.Threading
             Requires.NotNull(operation, nameof(operation));
 
             return this.ExecuteAsync(
-                delegate
+                op =>
                 {
-                    operation();
-                    return TplExtensions.CompletedTask;
+                    op();
+                    return (Task<EmptyStruct>)TplExtensions.CompletedTask;
                 },
+                operation,
                 cancellationToken);
         }
 
@@ -165,7 +171,22 @@ namespace Microsoft.VisualStudio.Threading
         /// <param name="operation">The delegate to invoke once the semaphore is entered.</param>
         /// <param name="cancellationToken">A cancellation token.</param>
         /// <returns>A task that completes with the result of <paramref name="operation"/>, after the semaphore has been exited.</returns>
-        public abstract Task ExecuteAsync(Func<Task> operation, CancellationToken cancellationToken = default);
+        public Task ExecuteAsync(Func<Task> operation, CancellationToken cancellationToken = default)
+        {
+            Requires.NotNull(operation, nameof(operation));
+
+            return this.ExecuteAsync(op => op(), operation, cancellationToken);
+        }
+
+        /// <summary>
+        /// Executes a given operation within the semaphore.
+        /// </summary>
+        /// <typeparam name="TState">The type of the <paramref name="state"/> object to supply to the <paramref name="operation"/>.</typeparam>
+        /// <param name="operation">The delegate to invoke once the semaphore is entered.</param>
+        /// <param name="state">A state object to provide to the <paramref name="operation"/> delegate.</param>
+        /// <param name="cancellationToken">A cancellation token.</param>
+        /// <returns>A task that completes with the result of <paramref name="operation"/>, after the semaphore has been exited.</returns>
+        public abstract Task ExecuteAsync<TState>(Func<TState, Task> operation, TState state, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Conceals evidence that the caller has entered this <see cref="ReentrantSemaphore"/> till its result is disposed.
@@ -289,7 +310,7 @@ namespace Microsoft.VisualStudio.Threading
             }
 
             /// <inheritdoc />
-            public override async Task ExecuteAsync(Func<Task> operation, CancellationToken cancellationToken = default)
+            public override async Task ExecuteAsync<TState>(Func<TState, Task> operation, TState state, CancellationToken cancellationToken = default)
             {
                 Requires.NotNull(operation, nameof(operation));
 
@@ -300,7 +321,7 @@ namespace Microsoft.VisualStudio.Threading
                         var releaser = await this.semaphore.EnterAsync(cancellationToken).ConfigureAwait(true);
                         try
                         {
-                            await operation().ConfigureAwaitRunInline();
+                            await operation(state).ConfigureAwaitRunInline();
                         }
                         finally
                         {
@@ -339,7 +360,7 @@ namespace Microsoft.VisualStudio.Threading
             }
 
             /// <inheritdoc />
-            public override async Task ExecuteAsync(Func<Task> operation, CancellationToken cancellationToken = default)
+            public override async Task ExecuteAsync<TState>(Func<TState, Task> operation, TState state, CancellationToken cancellationToken = default)
             {
                 Requires.NotNull(operation, nameof(operation));
                 this.ThrowIfFaulted();
@@ -358,7 +379,7 @@ namespace Microsoft.VisualStudio.Threading
                         try
                         {
                             this.reentrancyDetection.Value = ownedBox = new StrongBox<bool>(true);
-                            await operation().ConfigureAwaitRunInline();
+                            await operation(state).ConfigureAwaitRunInline();
                         }
                         finally
                         {
@@ -410,7 +431,7 @@ namespace Microsoft.VisualStudio.Threading
             }
 
             /// <inheritdoc />
-            public override async Task ExecuteAsync(Func<Task> operation, CancellationToken cancellationToken = default)
+            public override async Task ExecuteAsync<TState>(Func<TState, Task> operation, TState state, CancellationToken cancellationToken = default)
             {
                 Requires.NotNull(operation, nameof(operation));
                 this.ThrowIfFaulted();
@@ -440,7 +461,7 @@ namespace Microsoft.VisualStudio.Threading
 
                         try
                         {
-                            await operation().ConfigureAwaitRunInline();
+                            await operation(state).ConfigureAwaitRunInline();
                         }
                         finally
                         {
@@ -498,7 +519,7 @@ namespace Microsoft.VisualStudio.Threading
             }
 
             /// <inheritdoc />
-            public override async Task ExecuteAsync(Func<Task> operation, CancellationToken cancellationToken = default)
+            public override async Task ExecuteAsync<TState>(Func<TState, Task> operation, TState state, CancellationToken cancellationToken = default)
             {
                 Requires.NotNull(operation, nameof(operation));
                 this.ThrowIfFaulted();
@@ -524,7 +545,7 @@ namespace Microsoft.VisualStudio.Threading
 
                         try
                         {
-                            await operation().ConfigureAwaitRunInline();
+                            await operation(state).ConfigureAwaitRunInline();
                         }
                         finally
                         {

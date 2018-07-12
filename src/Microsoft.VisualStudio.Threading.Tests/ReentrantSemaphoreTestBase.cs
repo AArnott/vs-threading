@@ -100,6 +100,39 @@ public abstract class ReentrantSemaphoreTestBase : TestBase, IDisposable
 
     [Theory]
     [MemberData(nameof(AllModes))]
+    public void ExecuteAsync_FuncWithState(ReentrantSemaphore.ReentrancyMode mode)
+    {
+        this.ExecuteOnDispatcher(async delegate
+        {
+            this.semaphore = this.CreateSemaphore(mode);
+            var releaseFirstUser = new AsyncManualResetEvent();
+            var firstUser = this.semaphore.ExecuteAsync(() => releaseFirstUser.WaitAsync(), this.TimeoutToken);
+            bool secondUserWasInSemaphore = false;
+            var secondUser = this.semaphore.ExecuteAsync(
+                state =>
+                {
+                    secondUserWasInSemaphore = true;
+                    Assert.Equal("hi", state);
+                    return TplExtensions.CompletedTask;
+                },
+                "hi",
+                this.TimeoutToken);
+
+            var thirdUserCts = new CancellationTokenSource();
+            var thirdUser = this.semaphore.ExecuteAsync(s => TplExtensions.CompletedTask, "hi", thirdUserCts.Token);
+            Assert.False(thirdUser.IsCompleted);
+            thirdUserCts.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => thirdUser).WithCancellation(this.TimeoutToken);
+
+            Assert.False(secondUserWasInSemaphore);
+            releaseFirstUser.Set();
+            await Task.WhenAll(firstUser, secondUser);
+            Assert.True(secondUserWasInSemaphore);
+        });
+    }
+
+    [Theory]
+    [MemberData(nameof(AllModes))]
     public void ExecuteAsync_InvokesDelegateInOriginalContext_NoContention(ReentrantSemaphore.ReentrancyMode mode)
     {
         this.semaphore = this.CreateSemaphore(mode);
@@ -153,6 +186,7 @@ public abstract class ReentrantSemaphoreTestBase : TestBase, IDisposable
         {
             await Assert.ThrowsAsync<ArgumentNullException>(() => this.semaphore.ExecuteAsync((Action)null, this.TimeoutToken));
             await Assert.ThrowsAsync<ArgumentNullException>(() => this.semaphore.ExecuteAsync((Func<Task>)null, this.TimeoutToken));
+            await Assert.ThrowsAsync<ArgumentNullException>(() => this.semaphore.ExecuteAsync(null, new object(), this.TimeoutToken));
         });
     }
 
