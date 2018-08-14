@@ -19,6 +19,8 @@ namespace Microsoft.VisualStudio.Threading
     [DebuggerDisplay(nameof(CurrentCount) + " = {" + nameof(CurrentCount) + "}")]
     public abstract class ReentrantSemaphore : IDisposable
     {
+        private readonly Task<Releaser> grantedSemaphore;
+
         /// <summary>
         /// The factory to wrap all pending and active semaphore requests with to mitigate deadlocks.
         /// </summary>
@@ -30,9 +32,14 @@ namespace Microsoft.VisualStudio.Threading
         private readonly JoinableTaskCollection joinableTaskCollection;
 
         /// <summary>
-        /// The underlying semaphore primitive.
+        /// The queue of folks waiting to enter the semaphore.
         /// </summary>
-        private readonly AsyncSemaphore semaphore;
+        private readonly Queue<TaskCompletionSource<Releaser>> semaphoreWaiters = new Queue<TaskCompletionSource<Releaser>>();
+
+        /// <summary>
+        /// The number of available slots in the semaphore.
+        /// </summary>
+        private int currentCount;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ReentrantSemaphore"/> class.
@@ -44,9 +51,13 @@ namespace Microsoft.VisualStudio.Threading
         /// </devremarks>
         private protected ReentrantSemaphore(int initialCount, JoinableTaskContext joinableTaskContext)
         {
+            var tcs = new TaskCompletionSource<Releaser>();
+            tcs.SetResult(new Releaser(this));
+            this.grantedSemaphore = tcs.Task;
+
             this.joinableTaskCollection = joinableTaskContext?.CreateCollection();
             this.joinableTaskFactory = joinableTaskContext?.CreateFactory(this.joinableTaskCollection);
-            this.semaphore = new AsyncSemaphore(initialCount);
+            this.currentCount = initialCount;
         }
 
         /// <summary>
@@ -112,7 +123,7 @@ namespace Microsoft.VisualStudio.Threading
             get
             {
                 this.ThrowIfFaulted();
-                return this.semaphore.CurrentCount;
+                return Volatile.Read(ref this.currentCount);
             }
         }
 
@@ -184,7 +195,6 @@ namespace Microsoft.VisualStudio.Threading
         {
             if (disposing)
             {
-                this.semaphore.Dispose();
             }
         }
 
@@ -199,7 +209,7 @@ namespace Microsoft.VisualStudio.Threading
         /// Disposes the specfied release, swallowing certain exceptions.
         /// </summary>
         /// <param name="releaser">The releaser to dispose.</param>
-        private static void DisposeReleaserNoThrow(AsyncSemaphore.Releaser releaser)
+        private static void DisposeReleaserNoThrow(Releaser releaser)
         {
             try
             {
@@ -223,6 +233,49 @@ namespace Microsoft.VisualStudio.Threading
             return this.joinableTaskFactory != null
                 ? this.joinableTaskFactory.RunAsync(semaphoreUser).Task.ConfigureAwaitRunInline()
                 : semaphoreUser().ConfigureAwaitRunInline();
+        }
+
+        private Task<Releaser> EnterAsync(CancellationToken cancellationToken)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return ThreadingTools.TaskFromCanceled<Releaser>(cancellationToken);
+            }
+
+            lock (this.semaphoreWaiters)
+            {
+                if (this.currentCount > 0)
+                {
+                    this.currentCount--;
+                    return this.grantedSemaphore;
+                }
+
+                var tcs = new TaskCompletionSource<Releaser>();
+                tcs.AttachCancellation(cancellationToken);
+                this.semaphoreWaiters.Enqueue(tcs);
+                return tcs.Task;
+            }
+        }
+
+        private void Release()
+        {
+            lock (this.semaphoreWaiters)
+            {
+                Assumes.True(this.currentCount == 0 || this.semaphoreWaiters.Count == 0);
+
+                // Find the first uncanceled awaiter for the semaphore and allow it to enter.
+                while (this.semaphoreWaiters.Count > 0)
+                {
+                    var tcs = this.semaphoreWaiters.Dequeue();
+                    if (tcs.TrySetResult(new Releaser(this)))
+                    {
+                        return;
+                    }
+                }
+
+                // No awaiting folks. Record that we have an open slot.
+                this.currentCount++;
+            }
         }
 
         /// <summary>
@@ -264,6 +317,38 @@ namespace Microsoft.VisualStudio.Threading
         }
 
         /// <summary>
+        /// A value whose disposal triggers the release of a lock.
+        /// </summary>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Performance", "CA1815:OverrideEqualsAndOperatorEqualsOnValueTypes")]
+        public struct Releaser : IDisposable
+        {
+            /// <summary>
+            /// The lock instance to release.
+            /// </summary>
+            private readonly ReentrantSemaphore toRelease;
+
+            /// <summary>
+            /// Initializes a new instance of the <see cref="Releaser"/> struct.
+            /// </summary>
+            /// <param name="toRelease">The lock instance to release on.</param>
+            internal Releaser(ReentrantSemaphore toRelease)
+            {
+                this.toRelease = toRelease;
+            }
+
+            /// <summary>
+            /// Releases the lock.
+            /// </summary>
+            public void Dispose()
+            {
+                if (this.toRelease != null)
+                {
+                    this.toRelease.Release();
+                }
+            }
+        }
+
+        /// <summary>
         /// An implementation of <see cref="ReentrantSemaphore"/> supporting the <see cref="ReentrancyMode.NotRecognized"/> mode.
         /// </summary>
         private class NotRecognizedSemaphore : ReentrantSemaphore
@@ -289,7 +374,7 @@ namespace Microsoft.VisualStudio.Threading
                 // JTF.RunAsync. This requires us to not ConfigureAwait(true) on the semaphore. However, that prevents us from
                 // resuming on the correct sync context. To partially fix this, we will at least resume you on the main thread or
                 // thread pool.
-                AsyncSemaphore.Releaser releaser;
+                Releaser releaser;
                 bool resumeOnMainThread = this.IsJoinableTaskAware ? this.joinableTaskCollection.Context.IsOnMainThread : false;
                 bool mustYield = false;
                 using (this.joinableTaskCollection?.Join())
@@ -298,13 +383,13 @@ namespace Microsoft.VisualStudio.Threading
                     {
                         // Use ConfiguredAwaitRunInline() as ConfigureAwait(true) will
                         // deadlock due to not being inside a JTF.RunAsync().
-                        var releaserTask = this.semaphore.EnterAsync(cancellationToken);
+                        var releaserTask = this.EnterAsync(cancellationToken);
                         mustYield = !releaserTask.IsCompleted;
                         releaser = await releaserTask.ConfigureAwaitRunInline();
                     }
                     else
                     {
-                        releaser = await this.semaphore.EnterAsync(cancellationToken).ConfigureAwait(true);
+                        releaser = await this.EnterAsync(cancellationToken).ConfigureAwait(true);
                     }
                 }
 
@@ -386,7 +471,7 @@ namespace Microsoft.VisualStudio.Threading
                 // JTF.RunAsync. This requires us to not ConfigureAwait(true) on the semaphore. However, that prevents us from
                 // resuming on the correct sync context. To partially fix this, we will at least resume you on the main thread or
                 // thread pool.
-                AsyncSemaphore.Releaser releaser;
+                Releaser releaser;
                 bool resumeOnMainThread = this.IsJoinableTaskAware ? this.joinableTaskCollection.Context.IsOnMainThread : false;
                 bool mustYield = false;
                 using (this.joinableTaskCollection?.Join())
@@ -395,13 +480,13 @@ namespace Microsoft.VisualStudio.Threading
                     {
                         // Use ConfiguredAwaitRunInline() as ConfigureAwait(true) will
                         // deadlock due to not being inside a JTF.RunAsync().
-                        var releaserTask = this.semaphore.EnterAsync(cancellationToken);
+                        var releaserTask = this.EnterAsync(cancellationToken);
                         mustYield = !releaserTask.IsCompleted;
                         releaser = await releaserTask.ConfigureAwaitRunInline();
                     }
                     else
                     {
-                        releaser = await this.semaphore.EnterAsync(cancellationToken).ConfigureAwait(true);
+                        releaser = await this.EnterAsync(cancellationToken).ConfigureAwait(true);
                     }
                 }
 
@@ -463,11 +548,11 @@ namespace Microsoft.VisualStudio.Threading
             /// The means to recognize that a caller has already entered the semaphore.
             /// </summary>
             /// <devremarks>
-            /// We use <see cref="StrongBox{T}"/> instead of just <see cref="AsyncSemaphore.Releaser"/> here
+            /// We use <see cref="StrongBox{T}"/> instead of just <see cref="Releaser"/> here
             /// so that we have a unique identity for each Releaser that we can recognize as a means to verify
             /// the integrity of the "stack" of semaphore reentrant requests.
             /// </devremarks>
-            private readonly AsyncLocal<Stack<StrongBox<AsyncSemaphore.Releaser>>> reentrantCount = new AsyncLocal<Stack<StrongBox<AsyncSemaphore.Releaser>>>();
+            private readonly AsyncLocal<Stack<StrongBox<Releaser>>> reentrantCount = new AsyncLocal<Stack<StrongBox<Releaser>>>();
 
             /// <summary>
             /// A flag to indicate this instance was misused and the data it protects should not be touched as it may be corrupted.
@@ -492,14 +577,14 @@ namespace Microsoft.VisualStudio.Threading
 
                 // No race condition here: We're accessing AsyncLocal<T> which we by definition have our own copy of.
                 // Multiple threads or multiple async methods will all have their own storage for this field.
-                Stack<StrongBox<AsyncSemaphore.Releaser>> reentrantStack = this.reentrantCount.Value;
+                Stack<StrongBox<Releaser>> reentrantStack = this.reentrantCount.Value;
                 if (reentrantStack == null || reentrantStack.Count == 0)
                 {
                     // When the stack is empty, the semaphore isn't held. But many execution contexts that forked from a common root
                     // would be sharing this same empty Stack<T> instance. If we pushed to that Stack, all those forks would suddenly
                     // be seen as having entered this new top-level semaphore. We therefore allocate a new Stack and assign it to our
                     // AsyncLocal<T> field so that only this particular ExecutionContext is seen as having entered the semaphore.
-                    this.reentrantCount.Value = reentrantStack = new Stack<StrongBox<AsyncSemaphore.Releaser>>(capacity: 2);
+                    this.reentrantCount.Value = reentrantStack = new Stack<StrongBox<Releaser>>(capacity: 2);
                 }
 
                 // Note: this code is duplicated and not extracted to minimize allocating extra async state machines.
@@ -508,7 +593,7 @@ namespace Microsoft.VisualStudio.Threading
                 // JTF.RunAsync. This requires us to not ConfigureAwait(true) on the semaphore. However, that prevents us from
                 // resuming on the correct sync context. To partially fix this, we will at least resume you on the main thread or
                 // thread pool.
-                AsyncSemaphore.Releaser releaser;
+                Releaser releaser;
                 bool resumeOnMainThread = this.IsJoinableTaskAware ? this.joinableTaskCollection.Context.IsOnMainThread : false;
                 bool mustYield = false;
                 if (reentrantStack.Count == 0)
@@ -519,13 +604,13 @@ namespace Microsoft.VisualStudio.Threading
                         {
                             // Use ConfiguredAwaitRunInline() as ConfigureAwait(true) will
                             // deadlock due to not being inside a JTF.RunAsync().
-                            var releaserTask = this.semaphore.EnterAsync(cancellationToken);
+                            var releaserTask = this.EnterAsync(cancellationToken);
                             mustYield = !releaserTask.IsCompleted;
                             releaser = await releaserTask.ConfigureAwaitRunInline();
                         }
                         else
                         {
-                            releaser = await this.semaphore.EnterAsync(cancellationToken).ConfigureAwait(true);
+                            releaser = await this.EnterAsync(cancellationToken).ConfigureAwait(true);
                         }
                     }
                 }
@@ -537,7 +622,7 @@ namespace Microsoft.VisualStudio.Threading
                 await this.ExecuteCoreAsync(async delegate
                 {
                     bool pushed = false;
-                    var pushedReleaser = new StrongBox<AsyncSemaphore.Releaser>(releaser);
+                    var pushedReleaser = new StrongBox<Releaser>(releaser);
                     try
                     {
                         if (this.IsJoinableTaskAware)
@@ -601,7 +686,7 @@ namespace Microsoft.VisualStudio.Threading
             {
                 var originalValue = this.reentrantCount.Value;
                 this.reentrantCount.Value = null;
-                return new RevertRelevance((t, s) => ((StackSemaphore)t).reentrantCount.Value = (Stack<StrongBox<AsyncSemaphore.Releaser>>)s, this, originalValue);
+                return new RevertRelevance((t, s) => ((StackSemaphore)t).reentrantCount.Value = (Stack<StrongBox<Releaser>>)s, this, originalValue);
             }
 
             /// <summary>
@@ -621,7 +706,7 @@ namespace Microsoft.VisualStudio.Threading
             /// <summary>
             /// The means to recognize that a caller has already entered the semaphore.
             /// </summary>
-            private readonly AsyncLocal<Stack<AsyncSemaphore.Releaser>> reentrantCount = new AsyncLocal<Stack<AsyncSemaphore.Releaser>>();
+            private readonly AsyncLocal<Stack<Releaser>> reentrantCount = new AsyncLocal<Stack<Releaser>>();
 
             /// <summary>
             /// Initializes a new instance of the <see cref="FreeformSemaphore"/> class.
@@ -641,10 +726,10 @@ namespace Microsoft.VisualStudio.Threading
 
                 // No race condition here: We're accessing AsyncLocal<T> which we by definition have our own copy of.
                 // Multiple threads or multiple async methods will all have their own storage for this field.
-                Stack<AsyncSemaphore.Releaser> reentrantStack = this.reentrantCount.Value;
+                Stack<Releaser> reentrantStack = this.reentrantCount.Value;
                 if (reentrantStack == null || reentrantStack.Count == 0)
                 {
-                    this.reentrantCount.Value = reentrantStack = new Stack<AsyncSemaphore.Releaser>(capacity: 2);
+                    this.reentrantCount.Value = reentrantStack = new Stack<Releaser>(capacity: 2);
                 }
 
                 // Note: this code is duplicated and not extracted to minimize allocating extra async state machines.
@@ -653,7 +738,7 @@ namespace Microsoft.VisualStudio.Threading
                 // JTF.RunAsync. This requires us to not ConfigureAwait(true) on the semaphore. However, that prevents us from
                 // resuming on the correct sync context. To partially fix this, we will at least resume you on the main thread or
                 // thread pool.
-                AsyncSemaphore.Releaser releaser;
+                Releaser releaser;
                 bool resumeOnMainThread = this.IsJoinableTaskAware ? this.joinableTaskCollection.Context.IsOnMainThread : false;
                 bool mustYield = false;
                 if (reentrantStack.Count == 0)
@@ -664,13 +749,13 @@ namespace Microsoft.VisualStudio.Threading
                         {
                             // Use ConfiguredAwaitRunInline() as ConfigureAwait(true) will
                             // deadlock due to not being inside a JTF.RunAsync().
-                            var releaserTask = this.semaphore.EnterAsync(cancellationToken);
+                            var releaserTask = this.EnterAsync(cancellationToken);
                             mustYield = !releaserTask.IsCompleted;
                             releaser = await releaserTask.ConfigureAwaitRunInline();
                         }
                         else
                         {
-                            releaser = await this.semaphore.EnterAsync(cancellationToken).ConfigureAwait(true);
+                            releaser = await this.EnterAsync(cancellationToken).ConfigureAwait(true);
                         }
                     }
                 }
@@ -732,7 +817,7 @@ namespace Microsoft.VisualStudio.Threading
             {
                 var originalValue = this.reentrantCount.Value;
                 this.reentrantCount.Value = null;
-                return new RevertRelevance((t, s) => ((FreeformSemaphore)t).reentrantCount.Value = (Stack<AsyncSemaphore.Releaser>)s, this, originalValue);
+                return new RevertRelevance((t, s) => ((FreeformSemaphore)t).reentrantCount.Value = (Stack<Releaser>)s, this, originalValue);
             }
         }
     }
