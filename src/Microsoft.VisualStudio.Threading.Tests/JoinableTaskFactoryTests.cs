@@ -46,7 +46,7 @@
                     // throwing in this callback results in JTF calling Environment.FailFast
                     // which crashes the test runner. We'll assert on this local boolean
                     // after we exit this critical section.
-                    noDeadlockDetected = otherThread.Wait(AsyncDelay);
+                    noDeadlockDetected = otherThread.Wait(UnexpectedTimeout);
                 };
                 var jt = jtf.RunAsync(async delegate
                 {
@@ -125,6 +125,22 @@
                     return 1;
                 });
             }
+        }
+
+        [StaFact]
+        public void SwitchToMainThreadAlwaysYield()
+        {
+            this.SimulateUIThread(async () =>
+            {
+                Assert.True(this.asyncPump.Context.IsOnMainThread);
+                Assert.False(this.asyncPump.SwitchToMainThreadAsync(alwaysYield: true).GetAwaiter().IsCompleted);
+                Assert.True(this.asyncPump.SwitchToMainThreadAsync(alwaysYield: false).GetAwaiter().IsCompleted);
+
+                await TaskScheduler.Default;
+                Assert.False(this.asyncPump.Context.IsOnMainThread);
+                Assert.False(this.asyncPump.SwitchToMainThreadAsync(alwaysYield: true).GetAwaiter().IsCompleted);
+                Assert.False(this.asyncPump.SwitchToMainThreadAsync(alwaysYield: false).GetAwaiter().IsCompleted);
+            });
         }
 
         /// <summary>

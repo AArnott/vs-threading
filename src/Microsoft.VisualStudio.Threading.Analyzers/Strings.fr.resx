@@ -53,7 +53,7 @@
     <value>Utiliser InvokeAsync pour déclencher des événements async</value>
   </data>
   <data name="VSTHRD003_MessageFormat" xml:space="preserve">
-    <value>Le fait d'appeler await sur une tâche dans une méthode JoinableTaskFactory.Run quand la tâche est initialisée en dehors du délégué peut entraîner des blocages.
+    <value>Le fait d’appeler await sur une tâche dans une méthode JoinableTaskFactory.Run quand la tâche est initialisée en dehors du délégué peut entraîner des blocages.
 Vous pouvez éviter ce problème en vérifiant que la tâche est initialisée dans le délégué ou en utilisant JoinableTask à la place de Task.</value>
   </data>
   <data name="VSTHRD003_Title" xml:space="preserve">
@@ -84,9 +84,6 @@ Utilisez AsyncLazy&lt;T&gt; à la place</value>
   <data name="VSTHRD200_CodeFix_Title" xml:space="preserve">
     <value>Renommer en {0}</value>
     <comment>{0} is a method name.</comment>
-  </data>
-  <data name="VSTHRD200_MessageFormat" xml:space="preserve">
-    <value>Utilisez le suffixe "Async" dans les noms des méthodes retournant Task.</value>
   </data>
   <data name="VSTHRD200_Title" xml:space="preserve">
     <value>Utiliser le suffixe "Async" pour les méthodes asynchrones</value>

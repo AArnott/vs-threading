@@ -53,7 +53,7 @@
     <value>Use InvokeAsync para desencadenar eventos asincrónicos</value>
   </data>
   <data name="VSTHRD003_MessageFormat" xml:space="preserve">
-    <value>La llamada a await en un elemento Task dentro de JoinableTaskFactory.Run, cuando la tarea se ha iniciado fuera del delegado, puede provocar posibles interbloqueos.
+    <value>La llamada a await en un elemento Task dentro de JoinableTaskFactory.Run, cuando la tarea se ha iniciado fuera del delegado, puede provocar potenciales interbloqueos.
 Puede evitar este problema asegurándose de que la tarea se ha iniciado dentro del delegado o usando JoinableTask en lugar de Task.</value>
   </data>
   <data name="VSTHRD003_Title" xml:space="preserve">
@@ -84,9 +84,6 @@ Use AsyncLazy&lt;T&gt; en su lugar.</value>
   <data name="VSTHRD200_CodeFix_Title" xml:space="preserve">
     <value>Cambie el nombre a {0}</value>
     <comment>{0} is a method name.</comment>
-  </data>
-  <data name="VSTHRD200_MessageFormat" xml:space="preserve">
-    <value>Use el sufijo "Async" en nombres de métodos de devolución de elementos Task</value>
   </data>
   <data name="VSTHRD200_Title" xml:space="preserve">
     <value>Use el sufijo "Async" para métodos asincrónicos</value>

@@ -1,36 +1,19 @@
 ﻿namespace Microsoft.VisualStudio.Threading.Analyzers.Tests
 {
+    using System.Threading.Tasks;
     using Microsoft.CodeAnalysis;
-    using Microsoft.CodeAnalysis.CodeFixes;
-    using Microsoft.CodeAnalysis.Diagnostics;
+    using Microsoft.CodeAnalysis.Testing;
     using Xunit;
-    using Xunit.Abstractions;
+    using Verify = CSharpCodeFixVerifier<VSTHRD200UseAsyncNamingConventionAnalyzer, VSTHRD200UseAsyncNamingConventionCodeFix>;
 
-    public class VSTHRD200UseAsyncNamingConventionAnalyzerTests : CodeFixVerifier
+    public class VSTHRD200UseAsyncNamingConventionAnalyzerTests
     {
-        public VSTHRD200UseAsyncNamingConventionAnalyzerTests(ITestOutputHelper logger)
-            : base(logger)
-        {
-        }
+        private static readonly DiagnosticDescriptor AddSuffixDescriptor = VSTHRD200UseAsyncNamingConventionAnalyzer.AddAsyncDescriptor;
 
-        private DiagnosticResult NewExpectedTemplate() => new DiagnosticResult
-        {
-            Id = VSTHRD200UseAsyncNamingConventionAnalyzer.Id,
-            Severity = DiagnosticSeverity.Warning,
-        };
-
-        protected override DiagnosticAnalyzer GetCSharpDiagnosticAnalyzer()
-        {
-            return new VSTHRD200UseAsyncNamingConventionAnalyzer();
-        }
-
-        protected override CodeFixProvider GetCSharpCodeFixProvider()
-        {
-            return new VSTHRD200UseAsyncNamingConventionCodeFix();
-        }
+        private static readonly DiagnosticDescriptor RemoveSuffixDescriptor = VSTHRD200UseAsyncNamingConventionAnalyzer.RemoveAsyncDescriptor;
 
         [Fact]
-        public void TaskReturningMethodWithoutSuffix_GeneratesWarning()
+        public async Task TaskReturningMethodWithoutSuffix_GeneratesWarning()
         {
             var test = @"
 using System.Threading.Tasks;
@@ -48,14 +31,58 @@ class Test {
 }
 ";
 
-            var expected = this.NewExpectedTemplate();
-            expected.Locations = new[] { new DiagnosticResultLocation("Test0.cs", 5, 10, 5, 13) };
-            this.VerifyCSharpDiagnostic(test, expected);
-            this.VerifyCSharpFix(test, withFix);
+            var expected = Verify.Diagnostic(AddSuffixDescriptor).WithSpan(5, 10, 5, 13);
+            await Verify.VerifyCodeFixAsync(test, expected, withFix);
         }
 
         [Fact]
-        public void TaskReturningMainMethodWithoutSuffix_GeneratesNoWarning()
+        public async Task ValueTaskReturningMethodWithoutSuffix_GeneratesWarning()
+        {
+            var test = @"
+using System.Threading.Tasks;
+
+class Test {
+    ValueTask Foo() => default;
+}
+";
+
+            var withFix = @"
+using System.Threading.Tasks;
+
+class Test {
+    ValueTask FooAsync() => default;
+}
+";
+
+            var expected = Verify.Diagnostic(AddSuffixDescriptor).WithSpan(5, 15, 5, 18);
+            await Verify.VerifyCodeFixAsync(test, expected, withFix);
+        }
+
+        [Fact]
+        public async Task ValueTaskOfTReturningMethodWithoutSuffix_GeneratesWarning()
+        {
+            var test = @"
+using System.Threading.Tasks;
+
+class Test {
+    ValueTask<int> Foo() => default;
+}
+";
+
+            var withFix = @"
+using System.Threading.Tasks;
+
+class Test {
+    ValueTask<int> FooAsync() => default;
+}
+";
+
+            var expected = Verify.Diagnostic(AddSuffixDescriptor).WithSpan(5, 20, 5, 23);
+            await Verify.VerifyCodeFixAsync(test, expected, withFix);
+        }
+
+        [Fact]
+        public async Task TaskReturningMainMethodWithoutSuffix_GeneratesNoWarning()
         {
             var test = @"
 using System.Threading.Tasks;
@@ -68,11 +95,15 @@ class Test {
 }
 ";
 
-            this.VerifyCSharpDiagnostic(new[] { test }, true, allowErrors: false);
+            await new Verify.Test
+            {
+                TestCode = test,
+                HasEntryPoint = true,
+            }.RunAsync();
         }
 
         [Fact]
-        public void TaskReturningMainMethodWithArgsWithoutSuffix_GeneratesNoWarning()
+        public async Task TaskReturningMainMethodWithArgsWithoutSuffix_GeneratesNoWarning()
         {
             var test = @"
 using System.Threading.Tasks;
@@ -85,11 +116,15 @@ class Test {
 }
 ";
 
-            this.VerifyCSharpDiagnostic(new[] { test }, true, allowErrors: false);
+            await new Verify.Test
+            {
+                TestCode = test,
+                HasEntryPoint = true,
+            }.RunAsync();
         }
 
         [Fact]
-        public void TaskOfIntReturningMainMethodWithoutSuffix_GeneratesNoWarning()
+        public async Task TaskOfIntReturningMainMethodWithoutSuffix_GeneratesNoWarning()
         {
             var test = @"
 using System.Threading.Tasks;
@@ -103,11 +138,15 @@ class Test {
 }
 ";
 
-            this.VerifyCSharpDiagnostic(new[] { test }, true, allowErrors: false);
+            await new Verify.Test
+            {
+                TestCode = test,
+                HasEntryPoint = true,
+            }.RunAsync();
         }
 
         [Fact]
-        public void TaskReturningMethodWithoutSuffix_CodeFixUpdatesCallers()
+        public async Task TaskReturningMethodWithoutSuffix_CodeFixUpdatesCallers()
         {
             var test = @"
 using System.Threading.Tasks;
@@ -133,14 +172,12 @@ class Test {
 }
 ";
 
-            var expected = this.NewExpectedTemplate();
-            expected.Locations = new[] { new DiagnosticResultLocation("Test0.cs", 5, 10, 5, 13) };
-            this.VerifyCSharpDiagnostic(test, expected);
-            this.VerifyCSharpFix(test, withFix);
+            var expected = Verify.Diagnostic(AddSuffixDescriptor).WithSpan(5, 10, 5, 13);
+            await Verify.VerifyCodeFixAsync(test, expected, withFix);
         }
 
         [Fact]
-        public void TaskReturningMethodWithoutSuffixWithMultipleOverloads_CodeFixUpdatesCallers()
+        public async Task TaskReturningMethodWithoutSuffixWithMultipleOverloads_CodeFixUpdatesCallers()
         {
             var test = @"
 using System.Threading.Tasks;
@@ -170,16 +207,16 @@ class Test {
 }
 ";
 
-            var expected1 = this.NewExpectedTemplate();
-            expected1.Locations = new[] { new DiagnosticResultLocation("Test0.cs", 5, 10, 5, 13) };
-            var expected2 = this.NewExpectedTemplate();
-            expected2.Locations = new[] { new DiagnosticResultLocation("Test0.cs", 6, 10, 6, 13) };
-            this.VerifyCSharpDiagnostic(test, expected1, expected2);
-            this.VerifyCSharpFix(test, withFix);
+            DiagnosticResult[] expected =
+            {
+                Verify.Diagnostic(AddSuffixDescriptor).WithSpan(5, 10, 5, 13),
+                Verify.Diagnostic(AddSuffixDescriptor).WithSpan(6, 10, 6, 13),
+            };
+            await Verify.VerifyCodeFixAsync(test, expected, withFix);
         }
 
         [Fact]
-        public void TaskReturningMethodWithSuffix_GeneratesNoWarning()
+        public async Task TaskReturningMethodWithSuffix_GeneratesNoWarning()
         {
             var test = @"
 using System.Threading.Tasks;
@@ -188,11 +225,57 @@ class Test {
     Task FooAsync() => null;
 }
 ";
-            this.VerifyCSharpDiagnostic(test);
+            await Verify.VerifyAnalyzerAsync(test);
         }
 
         [Fact]
-        public void TaskReturningMethodWithoutSuffix_ImplementsInterface_GeneratesWarningOnlyOnInterface()
+        public async Task VoidReturningMethodWithSuffix_GeneratesWarning()
+        {
+            var test = @"
+class Test {
+    void FooAsync() { }
+
+    void Bar() => FooAsync();
+}
+";
+
+            var withFix = @"
+class Test {
+    void Foo() { }
+
+    void Bar() => Foo();
+}
+";
+
+            var expected = Verify.Diagnostic(RemoveSuffixDescriptor).WithSpan(3, 10, 3, 18);
+            await Verify.VerifyCodeFixAsync(test, expected, withFix);
+        }
+
+        [Fact]
+        public async Task BoolReturningMethodWithSuffix_GeneratesWarning()
+        {
+            var test = @"
+class Test {
+    bool FooAsync() => false;
+
+    bool Bar() => FooAsync();
+}
+";
+
+            var withFix = @"
+class Test {
+    bool Foo() => false;
+
+    bool Bar() => Foo();
+}
+";
+
+            var expected = Verify.Diagnostic(RemoveSuffixDescriptor).WithSpan(3, 10, 3, 18);
+            await Verify.VerifyCodeFixAsync(test, expected, withFix);
+        }
+
+        [Fact]
+        public async Task TaskReturningMethodWithoutSuffix_ImplementsInterface_GeneratesWarningOnlyOnInterface()
         {
             var test = @"
 using System.Threading.Tasks;
@@ -218,14 +301,12 @@ class Test : IFoo {
 }
 ";
 
-            var expected = this.NewExpectedTemplate();
-            expected.Locations = new[] { new DiagnosticResultLocation("Test0.cs", 5, 10, 5, 13) };
-            this.VerifyCSharpDiagnostic(test, expected);
-            this.VerifyCSharpFix(test, withFix);
+            var expected = Verify.Diagnostic(AddSuffixDescriptor).WithSpan(5, 10, 5, 13);
+            await Verify.VerifyCodeFixAsync(test, expected, withFix);
         }
 
         [Fact]
-        public void TaskReturningMethodWithoutSuffix_ImplementsInterfaceExplicitly_GeneratesWarningOnlyOnInterface()
+        public async Task TaskReturningMethodWithoutSuffix_ImplementsInterfaceExplicitly_GeneratesWarningOnlyOnInterface()
         {
             var test = @"
 using System.Threading.Tasks;
@@ -251,14 +332,12 @@ class Test : IFoo {
 }
 ";
 
-            var expected = this.NewExpectedTemplate();
-            expected.Locations = new[] { new DiagnosticResultLocation("Test0.cs", 5, 10, 5, 13) };
-            this.VerifyCSharpDiagnostic(test, expected);
-            this.VerifyCSharpFix(test, withFix);
+            var expected = Verify.Diagnostic(AddSuffixDescriptor).WithSpan(5, 10, 5, 13);
+            await Verify.VerifyCodeFixAsync(test, expected, withFix);
         }
 
         [Fact]
-        public void TaskReturningMethodWithoutSuffix_OverridesAbstract_GeneratesWarningOnlyOnInterface()
+        public async Task TaskReturningMethodWithoutSuffix_OverridesAbstract_GeneratesWarningOnlyOnInterface()
         {
             var test = @"
 using System.Threading.Tasks;
@@ -284,14 +363,12 @@ class Test : MyBase {
 }
 ";
 
-            var expected = this.NewExpectedTemplate();
-            expected.Locations = new[] { new DiagnosticResultLocation("Test0.cs", 5, 26, 5, 29) };
-            this.VerifyCSharpDiagnostic(test, expected);
-            this.VerifyCSharpFix(test, withFix);
+            var expected = Verify.Diagnostic(AddSuffixDescriptor).WithSpan(5, 26, 5, 29);
+            await Verify.VerifyCodeFixAsync(test, expected, withFix);
         }
 
         [Fact]
-        public void TaskReturningPropertyWithoutSuffix_GeneratesNoWarning()
+        public async Task TaskReturningPropertyWithoutSuffix_GeneratesNoWarning()
         {
             var test = @"
 using System.Threading.Tasks;
@@ -300,7 +377,7 @@ class Test {
     Task Foo => null;
 }
 ";
-            this.VerifyCSharpDiagnostic(test);
+            await Verify.VerifyAnalyzerAsync(test);
         }
     }
 }

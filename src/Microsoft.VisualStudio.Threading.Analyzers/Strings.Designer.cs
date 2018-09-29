@@ -125,8 +125,8 @@ namespace Microsoft.VisualStudio.Threading.Analyzers {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Calling await on a Task inside a JoinableTaskFactory.Run, when the task is initialized outside the delegate can cause potential deadlocks.
-        ///You can avoid this problem by ensuring the task is initialized within the delegate or by using JoinableTask instead of Task..
+        ///   Looks up a localized string similar to Calling await on a Task when the task is initialized in another context can cause potential deadlocks.
+        ///You can avoid this problem by ensuring the task is initialized within the same method or by using JoinableTask instead of Task..
         /// </summary>
         internal static string VSTHRD003_MessageFormat {
             get {
@@ -135,7 +135,7 @@ namespace Microsoft.VisualStudio.Threading.Analyzers {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Avoid awaiting non-joinable tasks in join contexts.
+        ///   Looks up a localized string similar to Avoid awaiting foreign Tasks.
         /// </summary>
         internal static string VSTHRD003_Title {
             get {
@@ -461,6 +461,51 @@ namespace Microsoft.VisualStudio.Threading.Analyzers {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Add .ConfigureAwait(false).
+        /// </summary>
+        internal static string VSTHRD111_CodeFix_False_Title {
+            get {
+                return ResourceManager.GetString("VSTHRD111_CodeFix_False_Title", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Add .ConfigureAwait(true).
+        /// </summary>
+        internal static string VSTHRD111_CodeFix_True_Title {
+            get {
+                return ResourceManager.GetString("VSTHRD111_CodeFix_True_Title", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Add .ConfigureAwait(bool) to your await expression..
+        /// </summary>
+        internal static string VSTHRD111_MessageFormat {
+            get {
+                return ResourceManager.GetString("VSTHRD111_MessageFormat", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Use ConfigureAwait(bool).
+        /// </summary>
+        internal static string VSTHRD111_Title {
+            get {
+                return ResourceManager.GetString("VSTHRD111_Title", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Use &quot;Async&quot; suffix in names of methods that return an awaitable type..
+        /// </summary>
+        internal static string VSTHRD200_AddAsync_MessageFormat {
+            get {
+                return ResourceManager.GetString("VSTHRD200_AddAsync_MessageFormat", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Rename to {0}.
         /// </summary>
         internal static string VSTHRD200_CodeFix_Title {
@@ -470,11 +515,11 @@ namespace Microsoft.VisualStudio.Threading.Analyzers {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to Use &quot;Async&quot; suffix in names of Task-returning methods..
+        ///   Looks up a localized string similar to Avoid &quot;Async&quot; suffix in names of methods that do not return an awaitable type..
         /// </summary>
-        internal static string VSTHRD200_MessageFormat {
+        internal static string VSTHRD200_RemoveAsync_MessageFormat {
             get {
-                return ResourceManager.GetString("VSTHRD200_MessageFormat", resourceCulture);
+                return ResourceManager.GetString("VSTHRD200_RemoveAsync_MessageFormat", resourceCulture);
             }
         }
         

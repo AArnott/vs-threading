@@ -53,8 +53,8 @@
     <value>Async olayları tetiklemek için InvokeAsync kullanın</value>
   </data>
   <data name="VSTHRD003_MessageFormat" xml:space="preserve">
-    <value>JoinableTaskFactory.Run içindeki bir Task için await çağırmak, görevin temsilci dışında başlatılması durumunda olası kilitlenmelere neden olabilir.
-Görevin temsilci içinde başlatılmasını sağlayarak veya Task yerine JoinableTask kullanarak bu sorunu önleyebilirsiniz.</value>
+    <value>JoinableTaskFactory.Run içindeki bir Task için await çağırmak, görevin temsilci dışında başlatılması durumunda kilitlenmelere neden olabilir.
+Görevin temsilcinin içinde başlatılmasını sağlayarak veya Task yerine JoinableTask kullanarak bu sorunu önleyebilirsiniz.</value>
   </data>
   <data name="VSTHRD003_Title" xml:space="preserve">
     <value>Birleşik olmayan görevleri birleşik ortamlarda beklemeyin</value>
@@ -84,9 +84,6 @@ Bunun yerine AsyncLazy&lt;T&gt; kullanın.</value>
   <data name="VSTHRD200_CodeFix_Title" xml:space="preserve">
     <value>{0} olarak yeniden adlandırın</value>
     <comment>{0} is a method name.</comment>
-  </data>
-  <data name="VSTHRD200_MessageFormat" xml:space="preserve">
-    <value>Task döndüren metotların adlarında “Async” kullanın.</value>
   </data>
   <data name="VSTHRD200_Title" xml:space="preserve">
     <value>Async metotları için "Async" sonekini kullanın</value>

@@ -141,9 +141,15 @@ namespace Microsoft.VisualStudio.Threading
         /// </summary>
         /// <param name="cancellationToken">
         /// A token whose cancellation will immediately schedule the continuation
-        /// on a threadpool thread.
+        /// on a threadpool thread (if the transition to the main thread is not already complete).
+        /// The token is ignored if the caller was already on the main thread.
         /// </param>
         /// <returns>An awaitable.</returns>
+        /// <exception cref="OperationCanceledException">
+        /// Thrown back at the awaiting caller from a background thread
+        /// when <paramref name="cancellationToken" /> is canceled before any required transition to the main thread is complete.
+        /// No exception is thrown if the caller was already on the main thread before calling this method.
+        /// </exception>
         /// <remarks>
         /// <example>
         /// <code>
@@ -164,6 +170,39 @@ namespace Microsoft.VisualStudio.Threading
         public MainThreadAwaitable SwitchToMainThreadAsync(CancellationToken cancellationToken = default(CancellationToken))
         {
             return new MainThreadAwaitable(this, this.Context.AmbientTask, cancellationToken);
+        }
+
+        /// <summary>
+        /// Gets an awaitable whose continuations execute on the synchronization context that this instance was initialized with,
+        /// in such a way as to mitigate both deadlocks and reentrancy.
+        /// </summary>
+        /// <param name="alwaysYield">A value indicating whether the caller should yield even if
+        /// already executing on the main thread.</param>
+        /// <param name="cancellationToken">
+        /// A token whose cancellation will immediately schedule the continuation
+        /// on a threadpool thread.
+        /// </param>
+        /// <returns>An awaitable.</returns>
+        /// <remarks>
+        /// <example>
+        /// <code>
+        /// private async Task SomeOperationAsync()
+        /// {
+        ///     // This first part can be on the caller's thread, whatever that is.
+        ///     DoSomething();
+        ///
+        ///     // Now switch to the Main thread to talk to some STA object.
+        ///     // Supposing it is also important to *not* do this step on our caller's callstack,
+        ///     // be sure we yield even if we're on the UI thread.
+        ///     await this.JoinableTaskFactory.SwitchToMainThreadAsync(alwaysYield: true);
+        ///     STAService.DoSomething();
+        /// }
+        /// </code>
+        /// </example>
+        /// </remarks>
+        public MainThreadAwaitable SwitchToMainThreadAsync(bool alwaysYield, CancellationToken cancellationToken = default(CancellationToken))
+        {
+            return new MainThreadAwaitable(this, this.Context.AmbientTask, cancellationToken, alwaysYield);
         }
 
         /// <summary>

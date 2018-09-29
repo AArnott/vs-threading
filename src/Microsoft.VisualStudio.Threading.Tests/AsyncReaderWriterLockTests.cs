@@ -496,9 +496,7 @@
         {
             await Task.Run(async delegate
             {
-#pragma warning disable SA1501 // Statement must not be on a single line: buggy analyzer misfires
                 Func<Task> yieldingDelegate = async () => { await Task.Yield(); };
-#pragma warning restore SA1501 // Statement must not be on a single line
                 var asyncLock = new LockDerived
                 {
                     OnBeforeExclusiveLockReleasedAsyncDelegate = yieldingDelegate,
@@ -565,7 +563,7 @@
         [StaFact]
         public async Task IsAnyLockHeldReturnsFalseForIncompatibleSyncContexts()
         {
-            var dispatcher = SingleThreadedSynchronizationContext.New();
+            var dispatcher = SingleThreadedTestSynchronizationContext.New();
             var asyncLock = new LockDerived();
             using (await asyncLock.ReadLockAsync())
             {
@@ -578,7 +576,7 @@
         [StaFact]
         public async Task IsAnyPassiveLockHeldReturnsTrueForIncompatibleSyncContexts()
         {
-            var dispatcher = SingleThreadedSynchronizationContext.New();
+            var dispatcher = SingleThreadedTestSynchronizationContext.New();
             var asyncLock = new LockDerived();
             using (await asyncLock.ReadLockAsync())
             {
@@ -591,7 +589,7 @@
         [StaFact]
         public async Task IsPassiveReadLockHeldReturnsTrueForIncompatibleSyncContexts()
         {
-            var dispatcher = SingleThreadedSynchronizationContext.New();
+            var dispatcher = SingleThreadedTestSynchronizationContext.New();
             using (await this.asyncLock.ReadLockAsync())
             {
                 Assert.True(this.asyncLock.IsPassiveReadLockHeld);
@@ -603,7 +601,7 @@
         [StaFact]
         public async Task IsPassiveUpgradeableReadLockHeldReturnsTrueForIncompatibleSyncContexts()
         {
-            var dispatcher = SingleThreadedSynchronizationContext.New();
+            var dispatcher = SingleThreadedTestSynchronizationContext.New();
             using (await this.asyncLock.UpgradeableReadLockAsync())
             {
                 Assert.True(this.asyncLock.IsPassiveUpgradeableReadLockHeld);
@@ -615,7 +613,7 @@
         [StaFact]
         public async Task IsPassiveWriteLockHeldReturnsTrueForIncompatibleSyncContexts()
         {
-            var dispatcher = SingleThreadedSynchronizationContext.New();
+            var dispatcher = SingleThreadedTestSynchronizationContext.New();
             using (var releaser = await this.asyncLock.WriteLockAsync())
             {
                 Assert.True(this.asyncLock.IsPassiveWriteLockHeld);
@@ -1452,7 +1450,7 @@
             }).GetAwaiter().GetResult();
         }
 
-        [StaFact]
+        [StaFact, Trait("TestCategory", "FailsInCloudTest")]
         public void UpgradeableReadLockAsyncSynchronousReleaseAllowsOtherUpgradeableReaders()
         {
             var testComplete = new ManualResetEventSlim(); // deliberately synchronous
@@ -1796,7 +1794,7 @@
 
                 // Synchronously block until the test is complete.
                 firstLockReleased.Set();
-                Assert.True(testComplete.Wait(AsyncDelay));
+                Assert.True(testComplete.Wait(UnexpectedTimeout));
             });
 
             var secondLockTask = Task.Run(async delegate
@@ -1811,6 +1809,67 @@
             Assert.True(secondLockTask.Wait(TestTimeout));
             testComplete.Set();
             Assert.True(firstLockTask.Wait(TestTimeout)); // rethrow any exceptions
+        }
+
+        /// <summary>
+        /// Test to verify that we don't block the code to dispose a write lock, when it has been released, and a new write lock was issued right between Release and Dispose.
+        /// That happens in the original implementation, because it shares a same NonConcurrentSynchronizationContext, so a new write lock can take over it, and block the original lock task
+        /// to resume back to the context.
+        /// </summary>
+        [StaFact]
+        public void WriteLockDisposingShouldNotBlockByOtherWriters()
+        {
+            var firstLockToRelease = new AsyncManualResetEvent();
+            var firstLockAccquired = new AsyncManualResetEvent();
+            var firstLockToDispose = new AsyncManualResetEvent();
+            var firstLockTask = Task.Run(async delegate
+            {
+                using (var firstLock = await this.asyncLock.WriteLockAsync())
+                {
+                    firstLockAccquired.Set();
+                    await firstLockToRelease.WaitAsync();
+                    await firstLock.ReleaseAsync();
+
+                    // Wait for the second lock to be issued
+                    await firstLockToDispose.WaitAsync();
+                }
+            });
+
+            var secondLockReleased = new TaskCompletionSource<int>();
+
+            var secondLockTask = Task.Run(async delegate
+            {
+                await firstLockAccquired.WaitAsync();
+                var awaiter = this.asyncLock.WriteLockAsync().GetAwaiter();
+                Assert.False(awaiter.IsCompleted);
+                awaiter.OnCompleted(() =>
+                {
+                    try
+                    {
+                        using (var access = awaiter.GetResult())
+                        {
+                            firstLockToDispose.Set();
+
+                            // We must block the thread synchronously, so it won't release the NonConcurrentSynchronizationContext until the first lock is completely disposed.
+                            firstLockTask.Wait(TestTimeout * 2);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        secondLockReleased.TrySetException(ex);
+                    }
+
+                    secondLockReleased.TrySetResult(0);
+                });
+                firstLockToRelease.Set();
+
+                // clean up logic
+                await firstLockTask;
+                await secondLockReleased.Task;
+            });
+
+            Assert.True(secondLockTask.Wait(TestTimeout)); // rethrow any exceptions
+            Assert.False(secondLockReleased.Task.IsFaulted);
         }
 
         [StaFact]
@@ -4562,6 +4621,7 @@
             bool hasUpgradeableReadLock = this.asyncLock.IsUpgradeableReadLockHeld;
             bool hasWriteLock = this.asyncLock.IsWriteLockHeld;
             bool concurrencyExpected = !(hasWriteLock || hasUpgradeableReadLock);
+            TimeSpan signalAndWaitDelay = concurrencyExpected ? UnexpectedTimeout : TimeSpan.FromMilliseconds(AsyncDelay / 2);
 
             var barrier = new Barrier(2); // we use a *synchronous* style Barrier since we are deliberately measuring multi-thread concurrency
 
@@ -4571,12 +4631,12 @@
                 Assert.Equal(hasReadLock, this.asyncLock.IsReadLockHeld);
                 Assert.Equal(hasUpgradeableReadLock, this.asyncLock.IsUpgradeableReadLockHeld);
                 Assert.Equal(hasWriteLock, this.asyncLock.IsWriteLockHeld);
-                AssertEx.Equal(concurrencyExpected, barrier.SignalAndWait(AsyncDelay / 2), "Concurrency detected for an exclusive lock.");
+                AssertEx.Equal(concurrencyExpected, barrier.SignalAndWait(signalAndWaitDelay), "Concurrency detected for an exclusive lock.");
                 await Task.Yield(); // this second yield is useful to check that the magic works across multiple continuations.
                 Assert.Equal(hasReadLock, this.asyncLock.IsReadLockHeld);
                 Assert.Equal(hasUpgradeableReadLock, this.asyncLock.IsUpgradeableReadLockHeld);
                 Assert.Equal(hasWriteLock, this.asyncLock.IsWriteLockHeld);
-                AssertEx.Equal(concurrencyExpected, barrier.SignalAndWait(AsyncDelay / 2), "Concurrency detected for an exclusive lock.");
+                AssertEx.Equal(concurrencyExpected, barrier.SignalAndWait(signalAndWaitDelay), "Concurrency detected for an exclusive lock.");
             };
 
             var asyncFuncs = new Func<Task>[] { worker, worker };
