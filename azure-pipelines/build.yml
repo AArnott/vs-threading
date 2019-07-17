@@ -16,10 +16,10 @@ steps:
   - template: azure-pipeline.microbuild.before.yml
 
 - task: DotNetCoreInstaller@0
-  displayName: Install .NET Core SDK 2.1.503
+  displayName: Install .NET Core SDK 2.2.300
   inputs:
     packageType: sdk
-    version: 2.1.503
+    version: 2.2.300
   condition: and(succeeded(), ne(variables['Hosted'], 'true')) # Hosted agents already have this.
 
 - script: dotnet --info
@@ -29,14 +29,13 @@ steps:
 - task: NuGetToolInstaller@0
   displayName: Pin nuget.exe version
   inputs:
-    versionSpec: 4.6.1
+    versionSpec: 5.1.x
 
 - powershell: nuget restore src\Microsoft.VisualStudio.Threading.sln
   displayName: Nuget restore packages
 
 - task: VSBuild@1
   inputs:
-    vsVersion: 15.0
     msbuildArgs: /t:build,pack /m /bl:"$(Build.ArtifactStagingDirectory)/build_logs/msbuild.binlog"
     platform: Any CPU
     configuration: $(BuildConfiguration)
@@ -50,7 +49,6 @@ steps:
 
 - task: VSBuild@1
   inputs:
-    vsVersion: 15.0
     msbuildArgs: /t:build /m /bl:"$(Build.ArtifactStagingDirectory)/build_logs/msbuild_x86.binlog"
     platform: x86
     configuration: $(BuildConfiguration)
@@ -58,7 +56,6 @@ steps:
 
 - task: VSBuild@1
   inputs:
-    vsVersion: 15.0
     msbuildArgs: /t:build /m /bl:"$(Build.ArtifactStagingDirectory)/build_logs/msbuild_x64.binlog"
     platform: x64
     configuration: $(BuildConfiguration)
