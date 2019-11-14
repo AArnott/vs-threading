@@ -155,11 +155,16 @@ namespace Microsoft.VisualStudio.Threading
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Usage", "CA1801:ReviewUnusedParameters", MessageId = "value", Justification = "We no-op on one platform.")]
         private static IntPtr GetAddress(object value)
         {
+#if WINDOWS_UWP
+            // https://github.com/dotnet/corert/issues/7882
+            throw new PlatformNotSupportedException();
+#else
             unsafe
             {
                 TypedReference tr = __makeref(value);
                 return **(IntPtr**)(&tr);
             }
+#endif
         }
 
         /// <summary>
