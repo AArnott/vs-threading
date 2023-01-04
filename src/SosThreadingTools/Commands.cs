@@ -13,7 +13,7 @@ internal static class Commands
 
     private static readonly Dictionary<string, ICommandHandler> CommandHandlers = new Dictionary<string, ICommandHandler>(StringComparer.OrdinalIgnoreCase)
     {
-        { "dumpasync", new DumpAsyncCommand() },
+        { DumpAsyncCommand, new DumpAsyncCommand() },
     };
 
     [DllExport(DumpAsyncCommand, CallingConvention.StdCall)]
@@ -22,10 +22,9 @@ internal static class Commands
         ExecuteCommand(client, DumpAsyncCommand, args);
     }
 
-    private static void ExecuteCommand(IntPtr client, string command, [MarshalAs(UnmanagedType.LPStr)] string args)
+    private static void ExecuteCommand(IntPtr client, string command, string? args)
     {
-        ICommandHandler handler;
-        if (!CommandHandlers.TryGetValue(command, out handler))
+        if (!CommandHandlers.TryGetValue(command, out ICommandHandler? handler))
         {
             return;
         }
@@ -38,7 +37,7 @@ internal static class Commands
 
         try
         {
-            handler.Execute(context, args);
+            handler.Execute(context, args!);
         }
 #pragma warning disable CA1031 // Do not catch general exception types
         catch (Exception ex)
