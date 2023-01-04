@@ -16,9 +16,10 @@ internal static class Commands
         { DumpAsyncCommand, new DumpAsyncCommand() },
     };
 
-    [DllExport(DumpAsyncCommand, CallingConvention.StdCall)]
-    internal static void DumpAsync(IntPtr client, [MarshalAs(UnmanagedType.LPStr)] string args)
+    [UnmanagedCallersOnly(EntryPoint = DumpAsyncCommand)]
+    private static unsafe void DumpAsync(IntPtr client, byte* pstrArgs)
     {
+        string? args = Marshal.PtrToStringUTF8((nint)pstrArgs);
         ExecuteCommand(client, DumpAsyncCommand, args);
     }
 
@@ -39,9 +40,7 @@ internal static class Commands
         {
             handler.Execute(context, args!);
         }
-#pragma warning disable CA1031 // Do not catch general exception types
         catch (Exception ex)
-#pragma warning restore CA1031 // Do not catch general exception types
         {
             context.Output.WriteLine($"Encountered an unhandled exception running '{command}':");
             context.Output.WriteLine(ex.ToString());
