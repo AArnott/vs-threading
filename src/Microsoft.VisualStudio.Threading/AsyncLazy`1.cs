@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -33,7 +34,7 @@ public class AsyncLazy<T>
     /// <summary>
     /// The function to invoke to produce the task.
     /// </summary>
-    private Func<Task<T>>? valueFactory;
+    private object valueFactory;
 
     /// <summary>
     /// The async pump to Join on calls to <see cref="GetValueAsync(CancellationToken)"/>.
@@ -41,21 +42,23 @@ public class AsyncLazy<T>
     private JoinableTaskFactory? jobFactory;
 
     /// <summary>
-    /// The result of the value factory.
+    /// Initializes a new instance of the <see cref="AsyncLazy{T}"/> class.
     /// </summary>
-    private Task<T>? value;
-
-    /// <summary>
-    /// A joinable task whose result is the value to be cached.
-    /// </summary>
-    private JoinableTask<T>? joinableTask;
+    /// <param name="valueFactory">The async function that produces the value.  To be invoked at most once.</param>
+    /// <param name="joinableTaskFactory">The factory to use when invoking the value factory in <see cref="GetValueAsync(CancellationToken)"/> to avoid deadlocks when the main thread is required by the value factory.</param>
+    public AsyncLazy(Func<Task<T>> valueFactory, JoinableTaskFactory? joinableTaskFactory = null)
+    {
+        Requires.NotNull(valueFactory, nameof(valueFactory));
+        this.valueFactory = valueFactory;
+        this.jobFactory = joinableTaskFactory;
+    }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AsyncLazy{T}"/> class.
     /// </summary>
     /// <param name="valueFactory">The async function that produces the value.  To be invoked at most once.</param>
     /// <param name="joinableTaskFactory">The factory to use when invoking the value factory in <see cref="GetValueAsync(CancellationToken)"/> to avoid deadlocks when the main thread is required by the value factory.</param>
-    public AsyncLazy(Func<Task<T>> valueFactory, JoinableTaskFactory? joinableTaskFactory = null)
+    public AsyncLazy(Func<CancellationToken, Task<T>> valueFactory, JoinableTaskFactory? joinableTaskFactory = null)
     {
         Requires.NotNull(valueFactory, nameof(valueFactory));
         this.valueFactory = valueFactory;
@@ -136,46 +139,6 @@ public class AsyncLazy<T>
                 // has completed.
                 if (this.value is null)
                 {
-                    RoslynDebug.Assert(this.valueFactory is object);
-
-                    cancellationToken.ThrowIfCancellationRequested();
-                    resumableAwaiter = new InlineResumable();
-                    Func<Task<T>>? originalValueFactory = this.valueFactory;
-                    this.valueFactory = null;
-                    Func<Task<T>> valueFactory = async delegate
-                    {
-                        try
-                        {
-                            await resumableAwaiter;
-                            return await originalValueFactory().ConfigureAwaitRunInline();
-                        }
-                        finally
-                        {
-                            this.jobFactory = null;
-                            this.joinableTask = null;
-                        }
-                    };
-
-                    this.recursiveFactoryCheck.Value = RecursiveCheckSentinel;
-                    try
-                    {
-                        if (this.jobFactory is object)
-                        {
-                            // Wrapping with RunAsync allows a future caller
-                            // to synchronously block the Main thread waiting for the result
-                            // without leading to deadlocks.
-                            this.joinableTask = this.jobFactory.RunAsync(valueFactory);
-                            this.value = this.joinableTask.Task;
-                        }
-                        else
-                        {
-                            this.value = valueFactory();
-                        }
-                    }
-                    finally
-                    {
-                        this.recursiveFactoryCheck.Value = null;
-                    }
                 }
             }
 
@@ -242,5 +205,166 @@ public class AsyncLazy<T>
         return (this.value is object && this.value.IsCompleted)
             ? (this.value.Status == TaskStatus.RanToCompletion ? $"{this.value.Result}" : Strings.LazyValueFaulted)
             : Strings.LazyValueNotCreated;
+    }
+
+    private class ValueFactoryInvocation
+    {
+        private AsyncLazy<T> owner;
+
+        /// <summary>
+        /// The result of the value factory.
+        /// </summary>
+        private Task<T> value;
+
+        /// <summary>
+        /// A joinable task whose result is the value to be cached.
+        /// </summary>
+        private JoinableTask<T>? joinableTask;
+
+        private HashSet<ValueClient>? clients;
+
+        private int clientCounter;
+
+        private CancellationTokenSource? cancellationTokenSource;
+
+        private InlineResumable resumableAwaiter = new();
+
+        internal ValueFactoryInvocation(AsyncLazy<T> owner, Func<CancellationToken, Task<T>> valueFactory, JoinableTaskFactory? joinableTaskFactory)
+        {
+            this.owner = owner;
+            this.cancellationTokenSource = new();
+
+            Func<Task<T>> valueFactoryWrapper = async delegate
+            {
+                await this.resumableAwaiter;
+                return await valueFactory(this.cancellationTokenSource.Token);
+            };
+
+            owner.recursiveFactoryCheck.Value = RecursiveCheckSentinel;
+            try
+            {
+                if (joinableTaskFactory is not null)
+                {
+                    // Wrapping with RunAsync allows a future caller
+                    // to synchronously block the Main thread waiting for the result
+                    // without leading to deadlocks.
+                    this.joinableTask = joinableTaskFactory.RunAsync(valueFactoryWrapper);
+                    this.value = this.joinableTask.Task;
+                }
+                else
+                {
+                    this.value = valueFactoryWrapper();
+                }
+            }
+            finally
+            {
+                owner.recursiveFactoryCheck.Value = null;
+            }
+        }
+
+        internal ValueFactoryInvocation(AsyncLazy<T> owner, Func<Task<T>> valueFactory, JoinableTaskFactory? joinableTaskFactory)
+        {
+            this.owner = owner;
+
+            Func<Task<T>> valueFactoryWrapper = async delegate
+            {
+                await this.resumableAwaiter;
+                return await valueFactory();
+            };
+
+            owner.recursiveFactoryCheck.Value = RecursiveCheckSentinel;
+            try
+            {
+                if (joinableTaskFactory is not null)
+                {
+                    // Wrapping with RunAsync allows a future caller
+                    // to synchronously block the Main thread waiting for the result
+                    // without leading to deadlocks.
+                    this.joinableTask = joinableTaskFactory.RunAsync(valueFactoryWrapper);
+                    this.value = this.joinableTask.Task;
+                }
+                else
+                {
+                    this.value = valueFactoryWrapper();
+                }
+            }
+            finally
+            {
+                owner.recursiveFactoryCheck.Value = null;
+            }
+        }
+
+        internal void Start() => this.resumableAwaiter.Resume();
+
+        internal Task<T> AddClient(CancellationToken cancellationToken)
+        {
+            if (this.value.IsCompleted)
+            {
+                return this.value;
+            }
+
+            if (cancellationToken.CanBeCanceled)
+            {
+                if (this.joinableTask is not null)
+                {
+                    // This cancellation should just decrement the count of interested parties, and cancel the value factory itself if this is the last one.
+                    CancellationTokenRegistration ctr = cancellationToken.Register(s => ((ValueFactoryInvocation)s!).CancelClient(), this);
+                    return this.joinableTask.JoinAsync(cancellationToken);
+                }
+                else
+                {
+                    // This cancellation should set a completion source on our caller.
+                    ValueClient client = new(this, cancellationToken);
+                    CancellationTokenRegistration ctr = cancellationToken.Register(s => ((ValueClient)s!).Cancel(), client);
+                }
+
+            }
+            else
+            {
+                // Once we have *any* non-cancelable client, we can quit tracking how many cancelable clients we have since we'll never cancel the value factory.
+                this.NotCancelable();
+            }
+        }
+
+        internal void NotCancelable()
+        {
+            this.clientCounter = -1;
+            if (this.cancellationTokenSource is not null)
+            {
+                this.cancellationTokenSource.Dispose();
+                this.cancellationTokenSource = null;
+            }
+        }
+
+        internal void CancelClient()
+        {
+            if (Interlocked.Decrement(ref this.clientCounter) == 0)
+            {
+                Assumes.NotNull(this.cancellationTokenSource);
+                this.cancellationTokenSource.Cancel();
+                this.cancellationTokenSource.Dispose();
+            }
+        }
+    }
+
+    private class ValueClient
+    {
+        private readonly ValueFactoryInvocation owner;
+        private readonly CancellationToken cancellationToken;
+
+        internal ValueClient(ValueFactoryInvocation owner, CancellationToken cancellationToken)
+        {
+            this.owner = owner;
+            this.cancellationToken = cancellationToken;
+        }
+
+        public TaskCompletionSource<T> CompletionSource = new();
+
+        public CancellationTokenRegistration TokenRegistration { get; set; }
+
+        internal void Cancel()
+        {
+            this.CompletionSource.TrySetCanceled(this.cancellationToken);
+        }
     }
 }
