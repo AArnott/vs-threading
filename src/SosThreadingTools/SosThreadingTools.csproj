@@ -2,6 +2,7 @@
   <PropertyGroup>
     <TargetFrameworks>net7.0-windows</TargetFrameworks>
     <RuntimeIdentifiers>win-x86;win-x64</RuntimeIdentifiers>
+    <ImplicitUsings>enable</ImplicitUsings>
     <ExtrasBuildEachRuntimeIdentifier>true</ExtrasBuildEachRuntimeIdentifier>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
