@@ -13,23 +13,6 @@
     <UseWPF Condition=" '$(TargetFramework)' != 'net6.0' ">true</UseWPF>
   </PropertyGroup>
   <ItemGroup>
-    <EmbeddedResource Update="Strings.resx">
-      <Generator>ResXFileCodeGenerator</Generator>
-      <LastGenOutput>Strings.Designer.cs</LastGenOutput>
-    </EmbeddedResource>
-    <EmbeddedResource Update="Strings.??*.resx">
-      <DependentUpon>Strings.resx</DependentUpon>
-      <Generator />
-    </EmbeddedResource>
-  </ItemGroup>
-  <ItemGroup>
-    <Compile Update="Strings.Designer.cs">
-      <DesignTime>True</DesignTime>
-      <AutoGen>True</AutoGen>
-      <DependentUpon>Strings.resx</DependentUpon>
-    </Compile>
-  </ItemGroup>
-  <ItemGroup>
     <CodeAnalysisDictionary Include="CustomDictionary.xml" />
   </ItemGroup>
   <ItemGroup Condition=" '$(TargetFramework)' == 'net472'  ">
